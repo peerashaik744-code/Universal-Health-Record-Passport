@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Doctor Dashboard · UHRP</title>
+<link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <div class="topbar">
+    <h1>🩺 Provider Dashboard</h1>
+    <div>
+      <span class="role-badge" id="userBadge"></span>
+      <button style="margin-left:10px;background:transparent;color:white;border:1px solid rgba(255,255,255,.5);" onclick="logout()">Log out</button>
+    </div>
+  </div>
+
+  <div class="container">
+
+    <div id="unverifiedBanner" class="msg warn hidden">
+      Your account is pending admin verification. You won't be able to scan patient QR codes until an admin approves it.
+    </div>
+
+    <div class="card">
+      <h2>Scan a patient QR code</h2>
+      <p class="muted">Paste the token from a scanned QR (or just open the QR's link directly — it fills this in automatically).</p>
+      <div style="display:flex; gap:10px;">
+        <input id="tokenInput" placeholder="scan token" style="flex:1;" />
+        <button style="margin-top:0;" onclick="scanToken()">Look up</button>
+      </div>
+      <div id="scanMsg" class="msg hidden"></div>
+    </div>
+
+    <div id="resultArea"></div>
+
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script>
+    const user = requireRoleOrRedirect("doctor");
+    if (user) {
+      document.getElementById("userBadge").textContent = `${user.name} · doctor`;
+      if (!user.verified) {
+        document.getElementById("unverifiedBanner").classList.remove("hidden");
+      }
+    }
+
+    function logout() { Api.clearSession(); window.location.href = "/index.html"; }
+
+    // If we arrived via /scan/<token>, pull it out of the URL.
+    (function prefillFromUrl() {
+      const parts = window.location.pathname.split("/");
+      if (parts[1] === "scan" && parts[2]) {
+        document.getElementById("tokenInput").value = parts[2];
+      }
+    })();
+
+    let currentPatientId = null;
+
+    async function scanToken() {
+      const msg = document.getElementById("scanMsg");
+      const result = document.getElementById("resultArea");
+      msg.classList.add("hidden");
+      result.innerHTML = "";
+      const token = document.getElementById("tokenInput").value.trim();
+      if (!token) return;
+
+      try {
+        const data = await Api.get(`/api/qr/scan/${token}`);
+
+        if (data.mode === "emergency") {
+          currentPatientId = null;
+          result.innerHTML = `
+            <div class="emergency-card">
+              <h2>🚨 Emergency information — ${data.patient.name}</h2>
+              <table>
+                <tr><th>Blood type</th><td>${data.emergencyCard.blood_type || "—"}</td></tr>
+                <tr><th>Allergies</th><td>${data.emergencyCard.allergies || "—"}</td></tr>
+                <tr><th>Conditions</th><td>${data.emergencyCard.conditions || "—"}</td></tr>
+                <tr><th>Medications</th><td>${data.emergencyCard.medications || "—"}</td></tr>
+                <tr><th>Emergency contact</th><td>${data.emergencyCard.emergency_contact || "—"}</td></tr>
+              </table>
+            </div>`;
+          return;
+        }
+
+        // standard mode, access granted
+        currentPatientId = data.patient.id;
+        renderStandard(data);
+      } catch (err) {
+        if (err.data && err.data.patient) {
+          showMsg(msg, `${err.message} (patient: ${err.data.patient.name}). ${err.data.hint || ""}`);
+        } else {
+          showMsg(msg, err.message);
+        }
+      }
+    }
+
+    function renderStandard(data) {
+      const result = document.getElementById("resultArea");
+      const p = data.profile;
+      result.innerHTML = `
+        <div class="card">
+          <h2>${data.patient.name} — full record</h2>
+          <div class="grid-2">
+            <div><strong>Blood type:</strong> ${p.blood_type || "—"}</div>
+            <div><strong>Allergies:</strong> ${p.allergies || "—"}</div>
+            <div><strong>Conditions:</strong> ${p.conditions || "—"}</div>
+            <div><strong>Medications:</strong> ${p.medications || "—"}</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Medical timeline</h3>
+          ${data.records.length ? data.records.map(r => `
+            <div class="timeline-item">
+              <strong>${r.record_type.replace("_"," ")}</strong> — ${r.summary}
+              <div class="meta">${r.facility || ""} · ${new Date(r.created_at).toLocaleString()} · hash: ${r.record_hash.slice(0,12)}…</div>
+              ${r.details ? `<div>${r.details}</div>` : ""}
+            </div>`).join("") : `<p class="muted">No entries yet.</p>`}
+        </div>
+
+        <div class="card">
+          <h3>Add a new record</h3>
+          <div id="addRecordMsg" class="msg hidden"></div>
+          <label>Type</label>
+          <select id="recordType">
+            <option value="visit">Visit</option>
+            <option value="diagnosis">Diagnosis</option>
+            <option value="prescription">Prescription</option>
+            <option value="vaccination">Vaccination</option>
+            <option value="lab_report">Lab report</option>
+            <option value="note">Note</option>
+          </select>
+          <label>Summary</label>
+          <input id="recordSummary" placeholder="e.g. Routine antenatal checkup" />
+          <label>Details (optional)</label>
+          <textarea id="recordDetails" placeholder="Additional notes..."></textarea>
+          <button onclick="addRecord()">Save to patient record</button>
+        </div>
+      `;
+    }
+
+    async function addRecord() {
+      const msg = document.getElementById("addRecordMsg");
+      try {
+        await Api.post(`/api/patients/${currentPatientId}/records`, {
+          record_type: document.getElementById("recordType").value,
+          summary: document.getElementById("recordSummary").value,
+          details: document.getElementById("recordDetails").value,
+        });
+        showMsg(msg, "Record saved.", "success");
+        scanToken(); // refresh timeline
+      } catch (err) { showMsg(msg, err.message); }
+    }
+
+    // Auto-run lookup if a token was prefilled from the URL
+    if (document.getElementById("tokenInput").value) scanToken();
+  </script>
+</body>
+</html>

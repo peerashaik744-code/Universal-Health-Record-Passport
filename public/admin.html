@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Admin Dashboard · UHRP</title>
+<link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <div class="topbar">
+    <h1>🩺 Admin Console</h1>
+    <div>
+      <span class="role-badge" id="userBadge"></span>
+      <button style="margin-left:10px;background:transparent;color:white;border:1px solid rgba(255,255,255,.5);" onclick="logout()">Log out</button>
+    </div>
+  </div>
+
+  <div class="container">
+
+    <div class="card">
+      <div class="flex-between">
+        <h2>Audit chain integrity</h2>
+        <button style="margin-top:0;" onclick="checkChain()">Verify chain now</button>
+      </div>
+      <div id="chainResult" class="msg hidden"></div>
+      <p class="muted">Every sensitive action (login, consent change, record access, QR scan) is appended to a
+        hash-chained, tamper-evident ledger. Verifying recomputes every hash from genesis and confirms nothing
+        was altered or deleted after the fact.</p>
+    </div>
+
+    <div class="card">
+      <h2>Provider verification</h2>
+      <p class="muted">Doctor/clinic accounts can't view patient records until approved here.</p>
+      <table>
+        <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Facility</th><th>Status</th><th></th></tr></thead>
+        <tbody id="usersTable"></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>System-wide audit log</h2>
+      <table>
+        <thead><tr><th>When</th><th>Actor</th><th>Action</th><th>Patient</th></tr></thead>
+        <tbody id="auditTable"></tbody>
+      </table>
+    </div>
+
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script>
+    const user = requireRoleOrRedirect("admin");
+    if (user) document.getElementById("userBadge").textContent = `${user.name} · admin`;
+
+    function logout() { Api.clearSession(); window.location.href = "/index.html"; }
+
+    async function loadUsers() {
+      const rows = await Api.get("/api/admin/users");
+      document.getElementById("usersTable").innerHTML = rows.map(u => `
+        <tr>
+          <td>${u.name}</td>
+          <td>${u.email}</td>
+          <td>${u.role}</td>
+          <td>${u.facility || "—"}</td>
+          <td>${u.verified ? '<span class="pill low">Verified</span>' : '<span class="pill med">Pending</span>'}</td>
+          <td>${!u.verified && u.role !== "patient" ? `<button style="margin:0;padding:4px 10px;font-size:.78rem;" onclick="verify(${u.id})">Verify</button>` : ""}</td>
+        </tr>`).join("");
+    }
+
+    async function verify(id) {
+      await Api.post(`/api/admin/users/${id}/verify`);
+      loadUsers();
+    }
+
+    async function loadAudit() {
+      const rows = await Api.get("/api/admin/audit");
+      document.getElementById("auditTable").innerHTML = rows.map(a => `
+        <tr>
+          <td>${new Date(a.created_at).toLocaleString()}</td>
+          <td>${a.actor_name || "System"} (${a.actor_role || "-"})</td>
+          <td>${a.action.replace(/_/g," ").toLowerCase()}</td>
+          <td>${a.patient_name || "—"}</td>
+        </tr>`).join("");
+    }
+
+    async function checkChain() {
+      const el = document.getElementById("chainResult");
+      const result = await Api.get("/api/admin/audit/verify");
+      if (result.valid) {
+        showMsg(el, `Chain verified: ${result.blocks} blocks, all hashes intact.`, "success");
+      } else {
+        showMsg(el, `TAMPERING DETECTED at block #${result.brokenAtId} (${result.reason}).`, "error");
+      }
+    }
+
+    loadUsers();
+    loadAudit();
+  </script>
+</body>
+</html>

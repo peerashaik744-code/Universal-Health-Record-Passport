@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Patient Dashboard · UHRP</title>
+<link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <div class="topbar">
+    <h1>🩺 My Health Passport</h1>
+    <div>
+      <span class="role-badge" id="userBadge"></span>
+      <button class="ghost" style="margin-left:10px;background:transparent;color:white;border:1px solid rgba(255,255,255,.5);" onclick="logout()">Log out</button>
+    </div>
+  </div>
+
+  <div class="container">
+
+    <div class="card">
+      <h2>Emergency information</h2>
+      <div id="profileMsg" class="msg hidden"></div>
+      <div class="grid-2">
+        <div>
+          <label>Blood type</label>
+          <input id="bloodType" placeholder="e.g. O+" />
+          <label>Allergies</label>
+          <input id="allergies" placeholder="e.g. Penicillin, Peanuts" />
+          <label>Chronic conditions</label>
+          <input id="conditions" placeholder="e.g. Type 1 Diabetes" />
+        </div>
+        <div>
+          <label>Current medications</label>
+          <input id="medications" placeholder="e.g. Insulin, daily" />
+          <label>Emergency contact</label>
+          <input id="emergencyContact" placeholder="Name + phone number" />
+        </div>
+      </div>
+      <button onclick="saveProfile()">Save emergency info</button>
+    </div>
+
+    <div class="card">
+      <h2>QR Health Passport</h2>
+      <p class="muted">The QR code never contains your medical data — only a short-lived, single-purpose link.
+        A doctor must be logged in (and, for the standard code, have your consent) before any record is shown.</p>
+      <div style="display:flex; gap:10px; flex-wrap:wrap;">
+        <button onclick="generateQr('standard')">Generate standard access code (expires in 15 min)</button>
+        <button class="danger" onclick="generateQr('emergency')">Generate emergency card code (expires in 60 min)</button>
+      </div>
+      <div id="qrArea" class="qr-box" style="margin-top:16px;"></div>
+    </div>
+
+    <div class="card">
+      <h2>Consent management</h2>
+      <p class="muted">Grant a verified doctor access to your full record by their registered email.</p>
+      <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end;">
+        <div style="flex:1; min-width:220px;">
+          <label>Doctor email</label>
+          <input id="doctorEmail" placeholder="doctor@clinic.org" />
+        </div>
+        <div style="width:160px;">
+          <label>Expires in (days)</label>
+          <input id="expiresDays" type="number" placeholder="e.g. 30 (blank = no expiry)" />
+        </div>
+        <button style="margin-top:0;" onclick="grantConsent()">Grant access</button>
+      </div>
+      <div id="consentMsg" class="msg hidden"></div>
+      <table id="consentTable" style="margin-top:14px;">
+        <thead><tr><th>Doctor</th><th>Facility</th><th>Status</th><th>Expires</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>Medical timeline</h2>
+      <div id="timeline"></div>
+    </div>
+
+    <div class="card">
+      <h2>Who accessed my record</h2>
+      <p class="muted">Every view, scan, and consent change is logged in a tamper-evident audit trail.</p>
+      <table>
+        <thead><tr><th>When</th><th>Who</th><th>Action</th></tr></thead>
+        <tbody id="auditTable"></tbody>
+      </table>
+    </div>
+
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script>
+    const user = requireRoleOrRedirect("patient");
+    if (user) document.getElementById("userBadge").textContent = `${user.name} · patient`;
+
+    function logout() { Api.clearSession(); window.location.href = "/index.html"; }
+
+    async function loadAll() {
+      const me = await Api.get("/api/patients/me");
+      const p = me.profile || {};
+      document.getElementById("bloodType").value = p.blood_type || "";
+      document.getElementById("allergies").value = p.allergies || "";
+      document.getElementById("conditions").value = p.conditions || "";
+      document.getElementById("medications").value = p.medications || "";
+      document.getElementById("emergencyContact").value = p.emergency_contact || "";
+
+      const timeline = document.getElementById("timeline");
+      timeline.innerHTML = me.records.length
+        ? me.records.map(r => `
+            <div class="timeline-item">
+              <strong>${r.record_type.replace("_"," ")}</strong> — ${r.summary}
+              <div class="meta">${r.facility || "Unknown facility"} · ${new Date(r.created_at).toLocaleString()}</div>
+              ${r.details ? `<div>${r.details}</div>` : ""}
+            </div>`).join("")
+        : `<p class="muted">No visits recorded yet.</p>`;
+
+      await loadConsents();
+      await loadAudit();
+    }
+
+    async function saveProfile() {
+      const msg = document.getElementById("profileMsg");
+      try {
+        await Api.put("/api/patients/me/profile", {
+          blood_type: document.getElementById("bloodType").value,
+          allergies: document.getElementById("allergies").value,
+          conditions: document.getElementById("conditions").value,
+          medications: document.getElementById("medications").value,
+          emergency_contact: document.getElementById("emergencyContact").value,
+        });
+        showMsg(msg, "Saved.", "success");
+      } catch (err) { showMsg(msg, err.message); }
+    }
+
+    async function generateQr(mode) {
+      const area = document.getElementById("qrArea");
+      area.innerHTML = "Generating…";
+      try {
+        const data = await Api.post("/api/qr/generate", { mode });
+        area.innerHTML = `
+          <img src="${data.qrDataUrl}" width="220" height="220" />
+          <p class="muted">${mode === "emergency" ? "Emergency card" : "Standard access"} code ·
+            expires ${new Date(data.expiresAt).toLocaleTimeString()}</p>
+          <p class="muted">Link: <a href="${data.scanUrl}">${data.scanUrl}</a></p>`;
+      } catch (err) {
+        area.innerHTML = `<p class="msg error">${err.message}</p>`;
+      }
+    }
+
+    async function loadConsents() {
+      const rows = await Api.get("/api/patients/me/consents");
+      document.querySelector("#consentTable tbody").innerHTML = rows.map(c => `
+        <tr>
+          <td>${c.doctor_name || "—"}<br/><span class="muted">${c.doctor_email || ""}</span></td>
+          <td>${c.doctor_facility || "—"}</td>
+          <td>${c.revoked ? '<span class="pill high">Revoked</span>' :
+                (c.expires_at && new Date(c.expires_at) < new Date()) ? '<span class="pill med">Expired</span>' :
+                '<span class="pill low">Active</span>'}</td>
+          <td>${c.expires_at ? new Date(c.expires_at).toLocaleDateString() : "No expiry"}</td>
+          <td>${c.revoked ? "" : `<button class="danger" style="margin:0;padding:4px 10px;font-size:.78rem;" onclick="revoke(${c.id})">Revoke</button>`}</td>
+        </tr>`).join("") || `<tr><td colspan="5" class="muted">No consents granted yet.</td></tr>`;
+    }
+
+    async function grantConsent() {
+      const msg = document.getElementById("consentMsg");
+      try {
+        const doctor_email = document.getElementById("doctorEmail").value.trim();
+        const days = document.getElementById("expiresDays").value;
+        await Api.post("/api/patients/me/consents", {
+          doctor_email,
+          expires_in_days: days ? Number(days) : null,
+        });
+        showMsg(msg, "Access granted.", "success");
+        document.getElementById("doctorEmail").value = "";
+        loadConsents();
+      } catch (err) { showMsg(msg, err.message); }
+    }
+
+    async function revoke(id) {
+      await Api.post(`/api/patients/me/consents/${id}/revoke`);
+      loadConsents();
+    }
+
+    async function loadAudit() {
+      const rows = await Api.get("/api/patients/me/audit");
+      document.getElementById("auditTable").innerHTML = rows.map(a => `
+        <tr>
+          <td>${new Date(a.created_at).toLocaleString()}</td>
+          <td>${a.actor_name || "System"} (${a.actor_role || "-"})</td>
+          <td>${a.action.replace(/_/g," ").toLowerCase()}</td>
+        </tr>`).join("") || `<tr><td colspan="3" class="muted">No activity yet.</td></tr>`;
+    }
+
+    loadAll();
+  </script>
+</body>
+</html>

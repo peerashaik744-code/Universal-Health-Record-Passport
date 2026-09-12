@@ -196,4 +196,3 @@ universal-health-record-passport/
   spec's "blockchain / tamper-evident audit" requirement.
 - Doctor/facility accounts require admin verification before they can pull
   any patient data, preventing a random signup from harvesting records.
-# Universal-Health-Record-Passport

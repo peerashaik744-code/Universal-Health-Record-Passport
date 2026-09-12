@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Universal Health Record Passport</title>
+<link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <div class="topbar">
+    <h1>🩺 Universal Health Record Passport</h1>
+    <span class="muted" style="color:white;opacity:.85;">Cross-border health records, made portable</span>
+  </div>
+
+  <div class="container" style="max-width:520px;">
+    <div class="tabs">
+      <button id="tabLogin" class="active">Log in</button>
+      <button id="tabRegister">Create account</button>
+    </div>
+
+    <div class="card" id="loginCard">
+      <h2>Log in</h2>
+      <div id="loginMsg" class="msg hidden"></div>
+      <label>Email</label>
+      <input type="email" id="loginEmail" placeholder="you@example.com" />
+      <label>Password</label>
+      <input type="password" id="loginPassword" placeholder="••••••••" />
+      <button onclick="doLogin()">Log in</button>
+      <p class="muted">Demo accounts (after running <code>npm run seed</code>):<br/>
+        patient@demo.org / patient12345<br/>
+        doctor@demo.org / doctor12345<br/>
+        admin@demo.org / admin12345
+      </p>
+    </div>
+
+    <div class="card hidden" id="registerCard">
+      <h2>Create account</h2>
+      <div id="registerMsg" class="msg hidden"></div>
+      <label>Full name</label>
+      <input type="text" id="regName" />
+      <label>Email</label>
+      <input type="email" id="regEmail" />
+      <label>Password (min 8 characters)</label>
+      <input type="password" id="regPassword" />
+      <label>I am a...</label>
+      <select id="regRole" onchange="toggleFacilityField()">
+        <option value="patient">Patient</option>
+        <option value="doctor">Doctor / Clinic staff</option>
+      </select>
+      <div id="facilityField" class="hidden">
+        <label>Facility / hospital name</label>
+        <input type="text" id="regFacility" placeholder="e.g. Nairobi General Clinic" />
+      </div>
+      <button onclick="doRegister()">Create account</button>
+      <p class="muted">Doctor accounts require admin verification before they can view patient records.</p>
+    </div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script>
+    // If already logged in, jump straight to the right dashboard.
+    (function redirectIfLoggedIn() {
+      const user = Api.currentUser();
+      if (Api.isLoggedIn() && user) {
+        window.location.href = `/${user.role}.html`;
+      }
+    })();
+
+    document.getElementById("tabLogin").onclick = () => switchTab("login");
+    document.getElementById("tabRegister").onclick = () => switchTab("register");
+
+    function switchTab(which) {
+      document.getElementById("tabLogin").classList.toggle("active", which === "login");
+      document.getElementById("tabRegister").classList.toggle("active", which === "register");
+      document.getElementById("loginCard").classList.toggle("hidden", which !== "login");
+      document.getElementById("registerCard").classList.toggle("hidden", which !== "register");
+    }
+
+    function toggleFacilityField() {
+      const role = document.getElementById("regRole").value;
+      document.getElementById("facilityField").classList.toggle("hidden", role !== "doctor");
+    }
+
+    async function doLogin() {
+      const msg = document.getElementById("loginMsg");
+      try {
+        const email = document.getElementById("loginEmail").value.trim();
+        const password = document.getElementById("loginPassword").value;
+        const data = await Api.post("/api/auth/login", { email, password });
+        Api.setSession(data.token, data.user);
+        window.location.href = `/${data.user.role}.html`;
+      } catch (err) {
+        showMsg(msg, err.message);
+      }
+    }
+
+    async function doRegister() {
+      const msg = document.getElementById("registerMsg");
+      try {
+        const name = document.getElementById("regName").value.trim();
+        const email = document.getElementById("regEmail").value.trim();
+        const password = document.getElementById("regPassword").value;
+        const role = document.getElementById("regRole").value;
+        const facility = document.getElementById("regFacility").value.trim();
+
+        const data = await Api.post("/api/auth/register", { name, email, password, role, facility });
+        Api.setSession(data.token, data.user);
+        if (data.note) {
+          showMsg(msg, data.note, "warn");
+          setTimeout(() => (window.location.href = `/${data.user.role}.html`), 1800);
+        } else {
+          window.location.href = `/${data.user.role}.html`;
+        }
+      } catch (err) {
+        showMsg(msg, err.message);
+      }
+    }
+  </script>
+</body>
+</html>
