@@ -57,6 +57,16 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: "internal server error" });
 });
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`Universal Health Record Passport API running on http://localhost:${PORT}`);
+});
+
+server.on("error", (err) => {
+  if (err.code === "EADDRINUSE") {
+    console.error(`\n❌ Port ${PORT} is already in use by another running process.`);
+    console.error(`Please stop the previous server process or choose another PORT in your .env file.\n`);
+  } else {
+    console.error(err);
+  }
+  process.exit(1);
 });
