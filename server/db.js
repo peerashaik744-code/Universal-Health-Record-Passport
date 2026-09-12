@@ -4,15 +4,31 @@
 
 const path = require("path");
 const fs = require("fs");
-const Database = require("better-sqlite3");
+let Database;
+try {
+  const sqlite = require("node:sqlite");
+  if (sqlite && sqlite.DatabaseSync) {
+    Database = sqlite.DatabaseSync;
+  }
+} catch (_) {}
+
+if (!Database) {
+  try {
+    Database = require("better-sqlite3");
+  } catch (_) {
+    throw new Error("No SQLite implementation found. Please use Node.js 22+ (for built-in node:sqlite) or install better-sqlite3.");
+  }
+}
 
 const DB_PATH = process.env.DB_PATH || "./data/passport.db";
 const dir = path.dirname(DB_PATH);
 if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
 const db = new Database(DB_PATH);
-db.pragma("journal_mode = WAL");
-db.pragma("foreign_keys = ON");
+try {
+  db.exec("PRAGMA journal_mode = WAL;");
+  db.exec("PRAGMA foreign_keys = ON;");
+} catch (_) {}
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS users (

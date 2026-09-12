@@ -5,12 +5,12 @@
   "main": "server/index.js",
   "scripts": {
     "start": "node server/index.js",
+    "server": "node server/index.js",
     "dev": "node --watch server/index.js",
     "seed": "node server/seed.js"
   },
   "dependencies": {
     "express": "^4.19.2",
-    "better-sqlite3": "^11.3.0",
     "jsonwebtoken": "^9.0.2",
     "bcryptjs": "^2.4.3",
     "qrcode": "^1.5.4",

@@ -38,18 +38,18 @@ function logAction({ actorId, actorRole, action, patientId, metadata }) {
 
   const stmt = db.prepare(`
     INSERT INTO audit_log (actor_id, actor_role, action, patient_id, metadata, prev_hash, hash, created_at)
-    VALUES (@actorId, @actorRole, @action, @patientId, @metadata, @prevHash, @hash, @createdAt)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
-  stmt.run({
-    actorId: actorId || null,
-    actorRole: actorRole || null,
+  stmt.run(
+    actorId || null,
+    actorRole || null,
     action,
-    patientId: patientId || null,
-    metadata: metadata ? JSON.stringify(metadata) : null,
+    patientId || null,
+    metadata ? JSON.stringify(metadata) : null,
     prevHash,
     hash,
-    createdAt,
-  });
+    createdAt
+  );
 
   return { hash, prevHash, createdAt };
 }
